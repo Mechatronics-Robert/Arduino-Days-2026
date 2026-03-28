@@ -1,0 +1,48 @@
+
+#include <Arduino.h>
+#include "MecanumRobot.h"
+
+MecanumRobot robot(4, 3, 6, 5, 10, 9, 12, 11);
+
+const int trigPin = 2;
+const int echoPin = 7;
+
+int obstacleDistance = 20;
+int forwardPulse = 50;
+
+long getDistance() {
+  digitalWrite(trigPin, LOW); delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH); delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  long duration = pulseIn(echoPin, HIGH, 25000);
+  return duration * 0.034 / 2;
+}
+
+void setup() {
+  Serial.begin(115200);
+  robot.begin();
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  robot.setTurnTime(400);
+}
+
+void loop() {
+  long dist = getDistance();
+  Serial.println(dist);
+
+  if (dist > obstacleDistance || dist == 0) {
+    robot.forwardStart();
+    delay(forwardPulse);
+  } else {
+    robot.stop();
+    delay(100);
+
+    robot.right(90);
+    delay(150);
+
+    long newDist = getDistance();
+    if (newDist < obstacleDistance) {
+      robot.left(180);
+    }
+  }
+}
