@@ -1,0 +1,461 @@
+#include <WiFiS3.h>
+#include <MecanumRobot.h>
+
+char ssid[] = "BOT#";  //Change to a different number, if using a school laptop, use that number.
+char pass[] = "12345678";
+
+//connect to the Arduino board wifi, the bot name will be BOT#(whatever number you assigned it)
+//then open a browser and type in 192.168.1
+
+WiFiServer server(80);
+MecanumRobot robot(4, 3, 6, 5, 10, 9, 12, 11);
+
+String currentAction = "stop";
+
+// -------------------- ACTION CONTROL --------------------
+
+void setAction(const String& action) {
+currentAction = action;
+
+if (action == "forward") {
+robot.forwardStart();
+delay(500);         // move for 500ms
+robot.stop();       // stop automatically
+
+}
+else if (action == "reverse") {
+robot.reverseStart();
+delay(500);         // move for 500ms
+robot.stop();       // stop automatically
+}
+else if (action == "left") {
+robot.turnLeftStart();
+delay(640);         // move for 500ms
+robot.stop();       // stop automatically
+}
+else if (action == "right") {
+robot.turnRightStart();
+delay(640);         // move for 500ms
+robot.stop();       // stop automatically
+
+}
+else if (action == "strafeleft") {
+robot.strafeLeftStart();
+delay(500);         // move for 500ms
+robot.stop();       // stop automatically
+}
+else if (action == "straferight") {
+robot.strafeRightStart();
+delay(500);         // move for 500ms
+robot.stop();       // stop automatically
+}
+else {
+robot.stop();
+currentAction = "stop";
+}
+}
+
+// -------------------- COMMAND EXECUTION --------------------
+
+void runCommandLine(String line) {
+line.trim();
+if (line.length() == 0) return;
+
+int spaceIndex = line.indexOf(' ');
+String command;
+int value = 0;
+
+if (spaceIndex > 0) {
+command = line.substring(0, spaceIndex);
+value = line.substring(spaceIndex + 1).toInt();
+} else {
+command = line;
+}
+
+command.toLowerCase();
+
+if (command == "forward") {
+robot.forward(value);
+}
+else if (command == "reverse") {
+robot.reverse(value);
+}
+else if (command == "left") {
+robot.left(value);
+}
+else if (command == "right") {
+robot.right(value);
+}
+else if (command == "strafeleft") {
+robot.strafeLeft(value);
+}
+else if (command == "straferight") {
+robot.strafeRight(value);
+}
+else if (command == "pause") {
+delay(value);
+}
+else if (command == "stop") {
+robot.stop();
+}
+}
+
+void runCommandList(String commands) {
+robot.stop();
+currentAction = "script";
+
+int start = 0;
+while (start < commands.length()) {
+int endIndex = commands.indexOf('\n', start);
+if (endIndex == -1) {
+endIndex = commands.length();
+}
+
+String line = commands.substring(start, endIndex);
+runCommandLine(line);
+
+start = endIndex + 1;
+}
+
+robot.stop();
+currentAction = "stop";
+}
+
+// -------------------- URL DECODE --------------------
+
+String urlDecode(String input) {
+String output = "";
+char temp[] = "0x00";
+
+for (unsigned int i = 0; i < input.length(); i++) {
+char c = input.charAt(i);
+
+if (c == '+') {
+output += ' ';
+}
+else if (c == '%' && i + 2 < input.length()) {
+temp[2] = input.charAt(i + 1);
+temp[3] = input.charAt(i + 2);
+output += (char) strtol(temp, NULL, 16);
+i += 2;
+}
+else {
+output += c;
+}
+}
+
+return output;
+}
+
+// -------------------- WEB PAGE --------------------
+
+void sendPage(WiFiClient& client) {
+client.println("HTTP/1.1 200 OK");
+client.println("Content-Type: text/html");
+client.println("Connection: close");
+client.println();
+
+client.println(R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mecanum Robot Control</title>
+<style>
+body {
+font-family: Arial, sans-serif;
+text-align: center;
+background: #111;
+color: white;
+margin: 0;
+padding: 20px;
+}
+
+h2 {
+margin-bottom: 8px;
+}
+
+.status {
+margin-bottom: 20px;
+font-size: 18px;
+}
+
+.controller {
+display: inline-grid;
+grid-template-columns: 110px 110px 110px;
+grid-template-rows: 70px 70px 70px;
+gap: 12px;
+margin-bottom: 24px;
+}
+
+.strafe-row {
+display: inline-grid;
+grid-template-columns: 150px 150px;
+gap: 16px;
+margin-top: 10px;
+margin-bottom: 30px;
+}
+
+button {
+width: 100%;
+height: 100%;
+font-size: 18px;
+font-weight: bold;
+border: none;
+border-radius: 14px;
+background: #2b2b2b;
+color: white;
+box-shadow: 0 4px 10px rgba(0,0,0,0.35);
+cursor: pointer;
+}
+
+button:active {
+transform: scale(0.97);
+}
+
+.stop {
+background: #b22222;
+}
+
+.wide {
+height: 70px;
+}
+
+.script-box {
+max-width: 420px;
+margin: 0 auto;
+text-align: left;
+}
+
+textarea {
+width: 100%;
+height: 180px;
+border-radius: 12px;
+border: none;
+padding: 12px;
+font-size: 16px;
+box-sizing: border-box;
+resize: vertical;
+}
+
+.run-btn {
+margin-top: 12px;
+width: 100%;
+height: 56px;
+font-size: 18px;
+border-radius: 12px;
+background: #1f6feb;
+}
+
+.help {
+margin-top: 10px;
+color: #ccc;
+font-size: 14px;
+line-height: 1.4;
+}
+</style>
+</head>
+<body>
+<h2>Robot Controller</h2>
+<div class="status">Current action: <span id="status">STOP</span></div>
+
+<div class="controller">
+<div></div>
+<button onclick="sendCmd('forward')">Forward</button>
+<div></div>
+
+<button onclick="sendCmd('left')">Left</button>
+<button class="stop" onclick="sendCmd('stop')">STOP</button>
+<button onclick="sendCmd('right')">Right</button>
+
+<div></div>
+<button onclick="sendCmd('reverse')">Reverse</button>
+<div></div>
+</div>
+
+<div class="strafe-row">
+<button class="wide" onclick="sendCmd('strafeleft')">Strafe Left</button>
+<button class="wide" onclick="sendCmd('straferight')">Strafe Right</button>
+</div>
+
+<div class="script-box">
+<h3>Command List</h3>
+<textarea id="commands">forward 1000
+pause 300
+left 90
+pause 300
+straferight 700
+pause 300
+reverse 500</textarea>
+<button class="run-btn" onclick="runCommands()">Run Commands</button>
+<div class="help">
+One command per line.<br>
+Supported: forward, reverse, left, right, strafeleft, straferight, pause, stop
+</div>
+</div>
+
+<script>
+function prettyName(cmd) {
+if (cmd === 'forward') return 'FORWARD';
+if (cmd === 'reverse') return 'REVERSE';
+if (cmd === 'left') return 'TURN LEFT';
+if (cmd === 'right') return 'TURN RIGHT';
+if (cmd === 'strafeleft') return 'STRAFE LEFT';
+if (cmd === 'straferight') return 'STRAFE RIGHT';
+if (cmd === 'script') return 'RUNNING SCRIPT';
+return 'STOP';
+}
+
+function sendCmd(cmd) {
+fetch('/cmd?move=' + encodeURIComponent(cmd))
+.then(() => {
+document.getElementById('status').textContent = prettyName(cmd);
+})
+.catch(() => {
+document.getElementById('status').textContent = 'ERROR';
+});
+}
+
+function runCommands() {
+const commands = document.getElementById('commands').value;
+
+fetch('/run', {
+method: 'POST',
+headers: {'Content-Type': 'text/plain'},
+body: commands
+})
+.then(() => {
+document.getElementById('status').textContent = prettyName('script');
+})
+.catch(() => {
+document.getElementById('status').textContent = 'ERROR';
+});
+}
+</script>
+</body>
+</html>
+)rawliteral");
+}
+
+void sendOk(WiFiClient& client, const char* text = "OK") {
+client.println("HTTP/1.1 200 OK");
+client.println("Content-Type: text/plain");
+client.println("Connection: close");
+client.println();
+client.println(text);
+}
+
+// -------------------- REQUEST HANDLING --------------------
+
+void handleGetRequest(const String& request, WiFiClient& client) {
+if (request.indexOf("GET /cmd?move=forward") >= 0) {
+setAction("forward");
+sendOk(client);
+}
+else if (request.indexOf("GET /cmd?move=reverse") >= 0) {
+setAction("reverse");
+sendOk(client);
+}
+else if (request.indexOf("GET /cmd?move=left") >= 0) {
+setAction("left");
+sendOk(client);
+}
+else if (request.indexOf("GET /cmd?move=right") >= 0) {
+setAction("right");
+sendOk(client);
+}
+else if (request.indexOf("GET /cmd?move=strafeleft") >= 0) {
+setAction("strafeleft");
+sendOk(client);
+}
+else if (request.indexOf("GET /cmd?move=straferight") >= 0) {
+setAction("straferight");
+sendOk(client);
+}
+else if (request.indexOf("GET /cmd?move=stop") >= 0) {
+setAction("stop");
+sendOk(client);
+}
+else {
+sendPage(client);
+}
+}
+
+void handlePostRunRequest(const String& request, WiFiClient& client) {
+int bodyIndex = request.indexOf("\r\n\r\n");
+if (bodyIndex < 0) {
+sendOk(client, "NO BODY");
+return;
+}
+
+String body = request.substring(bodyIndex + 4);
+body = urlDecode(body);
+
+sendOk(client, "RUNNING");
+runCommandList(body);
+}
+
+// -------------------- SETUP --------------------
+
+void setup() {
+Serial.begin(9600);
+robot.begin();
+robot.stop();
+
+Serial.println("Starting Access Point...");
+int status = WiFi.beginAP(ssid, pass);
+
+if (status != WL_AP_LISTENING) {
+Serial.println("Failed to start AP");
+while (true) {
+}
+}
+
+server.begin();
+
+Serial.println("Access Point started");
+Serial.print("SSID: ");
+Serial.println(ssid);
+Serial.print("Password: ");
+Serial.println(pass);
+Serial.print("Open: http://");
+Serial.println(WiFi.localIP());
+}
+
+// -------------------- LOOP --------------------
+
+void loop() {
+WiFiClient client = server.available();
+if (!client) return;
+
+String request = "";
+unsigned long startTime = millis();
+
+while (client.connected() && millis() - startTime < 2000) {
+while (client.available()) {
+char c = client.read();
+request += c;
+}
+
+if (request.indexOf("\r\n\r\n") >= 0) {
+// For POST, wait briefly for more body data
+if (request.startsWith("POST /run")) {
+delay(50);
+while (client.available()) {
+request += (char)client.read();
+}
+}
+
+if (request.startsWith("POST /run")) {
+handlePostRunRequest(request, client);
+} else {
+handleGetRequest(request, client);
+}
+
+client.stop();
+return;
+}
+}
+
+client.stop();
+}
